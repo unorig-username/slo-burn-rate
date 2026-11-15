@@ -1,7 +1,7 @@
 // Page wiring: form <-> state <-> URL hash, then render. All math and config text comes from slo.js.
 import {
-  WORKBOOK_POLICY, analyze, validate, toHash, fromHash, formatDuration, percent,
-  prometheusRules, grafanaRules, terraformRules,
+  WORKBOOK_POLICY, analyze, validate, toHash, fromHash, formatDuration, percent, parseWindow, promDuration,
+  sloName, prometheusRules, grafanaRules, terraformRules,
 } from "./slo.js";
 
 const $ = (id) => document.getElementById(id);
@@ -10,9 +10,9 @@ const field = (k) => form.querySelector(`[name="${k}"]`);
 const FIELDS = ["service", "errors", "total", "good", "count", "groupBy", "slo", "days", "guard", "rps", "whatIf"];
 const NUMBERS = new Set(["slo", "days", "guard", "rps", "whatIf"]);
 const FILES = {
-  prom: { gen: prometheusRules, name: (s) => `${s.service}-slo-rules.yml`, type: "application/yaml" },
-  grafana: { gen: grafanaRules, name: (s) => `${s.service}-slo-grafana.yml`, type: "application/yaml" },
-  terraform: { gen: terraformRules, name: (s) => `${s.service}-slo.tf`, type: "text/plain" },
+  prom: { gen: prometheusRules, name: (s) => `${sloName(s)}-slo-rules.yml`, type: "application/yaml" },
+  grafana: { gen: grafanaRules, name: (s) => `${sloName(s)}-slo-grafana.yml`, type: "application/yaml" },
+  terraform: { gen: terraformRules, name: (s) => `${sloName(s)}-slo.tf`, type: "text/plain" },
 };
 let current = null; // last valid state, used by copy and download
 
@@ -142,8 +142,8 @@ function chart(s, a) {
   svg.replaceChildren(...kids);
 
   const gone = a.exhaustAfter <= W ? `the ${s.days}-day budget is gone in ${formatDuration(a.exhaustAfter)}` : `${percent(left(W))} of the budget is left at the end of the window`;
-  const fires = [...fired].map(([t, g]) => `row ${g.rows.join(" and ")} fires in ${formatDuration(t)}`);
-  $("chartCaption").textContent = `At a steady ${s.whatIf}% error rate, ${gone}. ${fires.length ? `First alerts: ${fires.join("; ")}.` : "No alert in the policy fires at this rate."}`;
+  const fires = [...fired].map(([t, g]) => `${g.rows.length > 1 ? `rows ${g.rows.join(" and ")} fire` : `row ${g.rows[0]} fires`} in ${formatDuration(t)}`);
+  $("chartCaption").textContent = `At a steady ${s.whatIf}% error rate, ${gone}. ${fires.length ? `Alerts: ${fires.join("; ")}.` : "No alert in the policy fires at this rate."}`;
   out("chartNote", `${s.whatIf}% errors`);
 }
 
@@ -154,13 +154,14 @@ function update() {
   render(s);
 }
 
-let statusTimer;
+// One timer per button, and the label saved once, so quick repeat clicks can't leave "Copied" behind.
+const timers = new WeakMap();
 function announce(btn, text) {
-  const label = btn.textContent;
+  btn.dataset.label ??= btn.textContent;
   btn.textContent = text;
   $("status").textContent = text;
-  clearTimeout(statusTimer);
-  statusTimer = setTimeout(() => { btn.textContent = label; $("status").textContent = ""; }, 1600);
+  clearTimeout(timers.get(btn));
+  timers.set(btn, setTimeout(() => { btn.textContent = btn.dataset.label; $("status").textContent = ""; }, 1600));
 }
 
 async function copy(btn, text) {
@@ -182,8 +183,11 @@ form.addEventListener("click", (e) => {
     update();
     $("addRow").focus();
   } else if (t.id === "addRow") {
-    const rows = read().policy;
-    const tr = rowEl(rows.at(-1) ?? WORKBOOK_POLICY[0]);
+    // Double the last row's windows so the new row isn't a duplicate, when that still fits the SLO window.
+    const s = read();
+    const last = s.policy.at(-1) ?? WORKBOOK_POLICY[0];
+    const long = 2 * parseWindow(last.long), short = 2 * parseWindow(last.short);
+    const tr = rowEl(long <= s.days * 86400 ? { ...last, long: promDuration(long), short: promDuration(short) } : last);
     $("policy").append(tr);
     renumber();
     update();
@@ -210,5 +214,7 @@ function load() {
   render(read());
 }
 addEventListener("hashchange", load);
+// The hash holds the config, so the skip link moves focus without following "#top".
+document.querySelector(".skip").addEventListener("click", (e) => { e.preventDefault(); $("top").focus(); });
 new ResizeObserver(() => current && chart(current, analyze(current))).observe($("chart"));
 load();

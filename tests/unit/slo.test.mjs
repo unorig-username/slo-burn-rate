@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import {
   DEFAULTS, analyze, validate, toHash, fromHash, formatDuration, parseWindow, promDuration,
-  prometheusRules, grafanaRules, terraformRules,
+  errorRatio, prometheusRules, grafanaRules, terraformRules,
 } from "../../public/slo.js";
 
 const state = (over = {}) => ({ ...structuredClone(DEFAULTS), ...over });
@@ -94,16 +94,61 @@ test("availability rule file: recording rules for every window, alerts with guar
   const doc = parse(prometheusRules(state()));
   const [rec, alerts] = doc.groups;
   assert.deepEqual(rec.rules.map((r) => r.record), ["5m", "30m", "1h", "2h", "6h", "1d", "3d"].map((w) => `slo:sli_error:ratio_rate${w}`));
-  assert.equal(rec.rules[0].expr, 'sum(rate(http_requests_total{job="checkout",code=~"5.."}[5m]))\n/\nsum(rate(http_requests_total{job="checkout"}[5m]))');
-  assert.deepEqual(rec.rules[0].labels, { slo: "checkout" });
+  assert.equal(
+    rec.rules[0].expr,
+    '(\n  sum(rate(http_requests_total{job="checkout",code=~"5.."}[5m]))\n  or\n  0 * sum(rate(http_requests_total{job="checkout"}[5m]))\n)\n/\nsum(rate(http_requests_total{job="checkout"}[5m]))',
+  );
+  assert.deepEqual(rec.rules[0].labels, { slo: "checkout-availability" });
   assert.equal(alerts.rules.length, 4);
   assert.equal(
     alerts.rules[0].expr,
-    'slo:sli_error:ratio_rate1h{slo="checkout"} > (14.4 * 0.001)\nand\nslo:sli_error:ratio_rate5m{slo="checkout"} > (14.4 * 0.001)\nand on ()\nsum(rate(http_requests_total{job="checkout"}[1h])) > 1',
+    'slo:sli_error:ratio_rate1h{slo="checkout-availability"} > (14.4 * 0.001)\nand\nslo:sli_error:ratio_rate5m{slo="checkout-availability"} > (14.4 * 0.001)\nand on ()\nsum(rate(http_requests_total{job="checkout"}[1h])) > 1',
   );
   assert.deepEqual(alerts.rules.map((r) => r.labels.severity), ["page", "page", "ticket", "ticket"]);
   assert.deepEqual(Object.keys(alerts.rules[0].annotations), ["summary", "description", "runbook_url"]);
   assert.match(alerts.rules[0].annotations.runbook_url, /REPLACE-ME/);
+});
+
+test("availability ratio is 0, not empty, when no error series exists yet", () => {
+  assert.equal(
+    errorRatio(state(GROUPED), "1h"),
+    '(sum by (cluster, namespace) (rate(http_requests_total{job="checkout",code=~"5.."}[1h])) or 0 * sum by (cluster, namespace) (rate(http_requests_total{job="checkout"}[1h]))) / sum by (cluster, namespace) (rate(http_requests_total{job="checkout"}[1h]))',
+  );
+  assert.equal(parse(grafanaRules(state())).groups[0].rules[0].data[0].model.expr, errorRatio(state(), "1h"));
+});
+
+test("an availability and a latency SLO for one service share no names", () => {
+  const names = (over) => {
+    const s = state(over);
+    const prom = parse(prometheusRules(s)).groups;
+    const graf = parse(grafanaRules(s)).groups[0];
+    return [
+      ...prom.map((g) => g.name),
+      ...prom[0].rules.map((r) => `${r.record}${JSON.stringify(r.labels)}`),
+      ...prom[1].rules.map((r) => JSON.stringify(r.labels)),
+      graf.name,
+      ...graf.rules.flatMap((r) => [r.uid, r.title]),
+      ...terraformRules(s).match(/^resource .*$|^  name .*$/gm),
+    ];
+  };
+  const avail = names({}), lat = names(LATENCY);
+  assert.equal(avail.length, lat.length);
+  assert.deepEqual(avail.filter((n) => lat.includes(n)), []);
+  const long = "a-very-long-service-name-for-uid-limits";
+  const uids = (over) => parse(grafanaRules(state({ service: long, ...over }))).groups[0].rules.map((r) => r.uid);
+  assert.deepEqual(uids({}).filter((u) => uids(LATENCY).includes(u)), []);
+});
+
+test("long selectors and many policy rows are kept whole", () => {
+  const routes = Array.from({ length: 40 }, (_, i) => `/api/v1/route${i}`).join("|");
+  const total = `http_requests_total{job="checkout",route=~"${routes}"}`;
+  assert.ok(total.length > 600);
+  const s = state({ total });
+  assert.deepEqual(validate(s), []);
+  assert.ok(prometheusRules(s).includes(`rate(${total}[5m])`));
+  assert.equal(fromHash(`#${toHash(s)}`).total, total);
+  const policy = Array.from({ length: 13 }, (_, i) => ({ pct: 2, long: `${i + 2}h`, short: "5m", severity: "page" }));
+  assert.equal(fromHash(`#${toHash(state({ policy }))}`).policy.length, 13);
 });
 
 test("latency SLI uses 1 - good/total over the histogram", () => {
@@ -146,7 +191,7 @@ test("Grafana provisioning file has the expected shape", () => {
   const [group] = doc.groups;
   assert.equal(group.rules.length, 4);
   const rule = group.rules[0];
-  assert.equal(rule.uid, "slo-checkout-1h-5m");
+  assert.equal(rule.uid, "slo-checkout-availability-1h-5m");
   assert.equal(rule.condition, "D");
   assert.equal(rule.noDataState, "NoData");
   assert.equal(rule.execErrState, "Error");

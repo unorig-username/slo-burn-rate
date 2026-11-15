@@ -32,7 +32,7 @@
   </div>
 </header>
 
-<main id="top">
+<main id="top" tabindex="-1">
 <div class="wrap" id="form">
   <section class="hero" aria-labelledby="heroTitle">
     <span class="label">SLO error budgets · burn-rate alerts</span>
@@ -111,35 +111,35 @@
     <p class="note">Downtime means a full outage: every request failing. Partial failure stretches the same budget further.</p>
   </section>
 
-  <section class="section out" aria-labelledby="fireTitle">
+  <section class="section" aria-labelledby="fireTitle">
     <div class="section-head"><h2 id="fireTitle">When the alerts fire</h2><span class="label">Step 3</span></div>
     <label class="field inline"><span>What if errors run at a steady</span><input name="whatIf" type="number" inputmode="decimal" step="any" min="0" max="100"><span>% from the start of the window?</span></label>
-    <div class="table-wrap">
+    <div class="table-wrap out">
       <table class="cards analysis">
         <thead><tr><th scope="col">Policy</th><th scope="col">Burn rate</th><th scope="col">Fires above</th><th scope="col">Full outage fires in</th><th scope="col">Budget spent by then</th><th scope="col" data-out="whatIfHead">At the what-if rate</th></tr></thead>
         <tbody id="analysis"></tbody>
       </table>
     </div>
-    <figure class="chart">
+    <figure class="chart out">
       <div class="chart-top"><strong>Budget remaining at the what-if rate</strong><span class="label" data-out="chartNote"></span></div>
       <svg id="chart" viewBox="0 0 600 220" role="img" aria-labelledby="chartCaption"></svg>
       <figcaption id="chartCaption"></figcaption>
     </figure>
-    <p class="note">Times assume the window was clean before the errors started, and ignore scrape and rule evaluation intervals. The short window keeps an alert from firing late on old errors and lets it resolve soon after recovery.</p>
+    <p class="note out">Times assume the window was clean before the errors started, and ignore scrape and rule evaluation intervals. The short window keeps an alert from firing late on old errors and lets it resolve soon after recovery.</p>
   </section>
 
   <section class="section out" aria-labelledby="cfgTitle">
     <div class="section-head"><h2 id="cfgTitle">Generated config</h2><button class="btn small" type="button" id="copyLink">Copy share link</button></div>
     <div class="cfg">
-      <div class="cfg-head"><div><h3>Prometheus rule file</h3><span class="label">Recording rules for every window, then one alert per policy row</span></div><div class="row"><button class="btn small" type="button" data-copy="prom">Copy</button><button class="btn small" type="button" data-download="prom">Download</button></div></div>
+      <div class="cfg-head"><div><h3>Prometheus rule file</h3><span class="label">Recording rules for every window, then one alert per policy row</span></div><div class="row"><button class="btn small" type="button" data-copy="prom" aria-label="Copy Prometheus rule file">Copy</button><button class="btn small" type="button" data-download="prom" aria-label="Download Prometheus rule file">Download</button></div></div>
       <pre tabindex="0" aria-label="Prometheus rule file"><code id="out-prom"></code></pre>
     </div>
     <div class="cfg">
-      <div class="cfg-head"><div><h3>Grafana file provisioning</h3><span class="label">Grafana-managed rules, no recording rules needed</span></div><div class="row"><button class="btn small" type="button" data-copy="grafana">Copy</button><button class="btn small" type="button" data-download="grafana">Download</button></div></div>
+      <div class="cfg-head"><div><h3>Grafana file provisioning</h3><span class="label">Grafana-managed rules, no recording rules needed</span></div><div class="row"><button class="btn small" type="button" data-copy="grafana" aria-label="Copy Grafana provisioning file">Copy</button><button class="btn small" type="button" data-download="grafana" aria-label="Download Grafana provisioning file">Download</button></div></div>
       <pre tabindex="0" aria-label="Grafana provisioning file"><code id="out-grafana"></code></pre>
     </div>
     <div class="cfg">
-      <div class="cfg-head"><div><h3>Terraform</h3><span class="label">grafana_rule_group for the grafana/grafana provider</span></div><div class="row"><button class="btn small" type="button" data-copy="terraform">Copy</button><button class="btn small" type="button" data-download="terraform">Download</button></div></div>
+      <div class="cfg-head"><div><h3>Terraform</h3><span class="label">grafana_rule_group for the grafana/grafana provider</span></div><div class="row"><button class="btn small" type="button" data-copy="terraform" aria-label="Copy Terraform file">Copy</button><button class="btn small" type="button" data-download="terraform" aria-label="Download Terraform file">Download</button></div></div>
       <pre tabindex="0" aria-label="Terraform file"><code id="out-terraform"></code></pre>
     </div>
     <p class="note">Grafana rules carry a <code>for</code> of one minute, so they fire about a minute after the Prometheus rules. Replace the <code>runbook_url</code> placeholders before you ship.</p>

@@ -37,7 +37,8 @@ const num = (x) => String(Number(x.toPrecision(6)));
 export const percent = (x) => `${num(x * 100)}%`;
 
 // Strips control characters and newlines so user text can't break YAML, HCL, or comments.
-export const clean = (v) => String(v ?? "").replace(/[\s\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 500);
+// No length cap: cutting a selector short would produce broken PromQL.
+export const clean = (v) => String(v ?? "").replace(/[\s\u0000-\u001f\u007f]+/g, " ").trim();
 export const parseLabels = (s) => clean(s).split(",").map((x) => x.trim()).filter(Boolean);
 
 export function parseWindow(w) {
@@ -157,7 +158,7 @@ export function fromHash(hash) {
     s[k] = NUMERIC.has(k) ? (v === "" ? null : Number(v)) : v;
   }
   if (p.has("p")) {
-    s.policy = clean(p.get("p")).split(";").filter(Boolean).slice(0, 12).map((row) => {
+    s.policy = clean(p.get("p")).split(";").filter(Boolean).map((row) => {
       const [pct, long = "", short = "", severity = ""] = row.split(",").map((x) => x.trim());
       return { pct: Number(pct), long, short, severity };
     });
@@ -172,17 +173,22 @@ const sumRate = (sel, w, labels) => `sum${by(labels)}(rate(${clean(sel)}[${w}]))
 const totalSel = (s) => (s.sli === "latency" ? s.count : s.total);
 
 // Bad events / all events over window w. Latency SLIs count requests above the bucket boundary as bad.
+// Availability: "or 0 * total" turns a missing error series (no 5xx since the last restart) into 0, not no data.
 export function errorRatio(s, w, multiline = false) {
   const labels = parseLabels(s.groupBy);
   const [a, b] = s.sli === "latency" ? [s.good, s.count] : [s.errors, s.total];
   const [x, y] = [sumRate(a, w, labels), sumRate(b, w, labels)];
   if (s.sli === "latency") return multiline ? `1 - (\n  ${x}\n  /\n  ${y}\n)` : `1 - (${x} / ${y})`;
-  return multiline ? `${x}\n/\n${y}` : `${x} / ${y}`;
+  return multiline ? `(\n  ${x}\n  or\n  0 * ${y}\n)\n/\n${y}` : `(${x} or 0 * ${y}) / ${y}`;
 }
 
 export const trafficExpr = (s, w) => sumRate(totalSel(s), w, parseLabels(s.groupBy));
 
 // ---- Shared alert text ----
+
+// The SLO's name in every label, group, uid, and resource: an availability and a latency SLO
+// for the same service must not overwrite each other.
+export const sloName = (s) => `${s.service}-${s.sli}`;
 
 const sq = (v) => `'${String(v).replaceAll("'", "''")}'`; // YAML single-quoted scalar
 // HCL string with template sequences escaped. Function replacers, because "$$" in a replacement string means "$".
@@ -192,13 +198,13 @@ const indent = (text, n) => text.split("\n").map((l) => " ".repeat(n) + l);
 function texts(s, r) {
   const lasts = formatDuration((s.days * DAY) / r.burn);
   return {
-    summary: `${s.service} is burning its error budget at ${num(r.burn)}x (${r.pct}% of the ${s.days}d budget in ${r.long})`,
+    summary: `${s.service} ${s.sli} SLO is burning its error budget at ${num(r.burn)}x (${r.pct}% of the ${s.days}d budget in ${r.long})`,
     detail: `Alert threshold is ${percent(r.threshold)} errors (${num(r.burn)}x burn on a ${s.slo}% SLO, ${r.long} and ${r.short} windows). At this rate the ${s.days}d budget lasts ${lasts}.`,
-    runbook: `${RUNBOOK_PLACEHOLDER}${s.service}`,
+    runbook: `${RUNBOOK_PLACEHOLDER}${sloName(s)}`,
   };
 }
 
-const ruleLabels = (s, r) => [["severity", r.severity], ["slo", s.service], ["long_window", r.long], ["short_window", r.short]];
+const ruleLabels = (s, r) => [["severity", r.severity], ["slo", sloName(s)], ["long_window", r.long], ["short_window", r.short]];
 const header = (s, what) => [
   `# ${what} for the ${s.service} SLO: ${s.slo}% over ${s.days}d (${s.sli}).`,
   `# Multiwindow, multi-burn-rate alerts (Google SRE Workbook, chapter 5).`,
@@ -211,14 +217,14 @@ export function prometheusRules(s) {
   const a = analyze(s);
   const labels = parseLabels(s.groupBy);
   const windows = [...new Map(a.rows.flatMap((r) => [[r.shortSec, r.short], [r.longSec, r.long]]))].sort((x, y) => x[0] - y[0]).map(([, w]) => w);
-  const out = [...header(s, "Prometheus recording and alerting rules"), "groups:", `  - name: ${sq(`slo-${s.service}-recording`)}`, "    rules:"];
+  const out = [...header(s, "Prometheus recording and alerting rules"), "groups:", `  - name: ${sq(`slo-${sloName(s)}-recording`)}`, "    rules:"];
   for (const w of windows) {
-    out.push(`      - record: slo:sli_error:ratio_rate${w}`, "        expr: |-", ...indent(errorRatio(s, w, true), 10), "        labels:", `          slo: ${sq(s.service)}`);
+    out.push(`      - record: slo:sli_error:ratio_rate${w}`, "        expr: |-", ...indent(errorRatio(s, w, true), 10), "        labels:", `          slo: ${sq(sloName(s))}`);
   }
-  out.push(`  - name: ${sq(`slo-${s.service}-alerts`)}`, "    rules:");
+  out.push(`  - name: ${sq(`slo-${sloName(s)}-alerts`)}`, "    rules:");
   for (const r of a.rows) {
     const t = texts(s, r);
-    const over = (w) => `slo:sli_error:ratio_rate${w}{slo="${s.service}"} > (${num(r.burn)} * ${num(a.budget)})`;
+    const over = (w) => `slo:sli_error:ratio_rate${w}{slo="${sloName(s)}"} > (${num(r.burn)} * ${num(a.budget)})`;
     const expr = [over(r.long), "and", over(r.short)];
     if (s.guard > 0) expr.push(`and on (${labels.join(", ")})`, `${trafficExpr(s, r.long)} > ${num(s.guard)}`);
     out.push(
@@ -246,18 +252,19 @@ function grafanaRule(s, r) {
   const terms = [`$A > ${t}`, `$B > ${t}`];
   if (s.guard > 0) terms.push(`$C > ${num(s.guard)}`);
   const slug = s.service.replace(/[^A-Za-z0-9_-]/g, "-");
-  const suffix = `-${r.long}-${r.short}`;
+  const suffix = `-${s.sli}-${r.long}-${r.short}`; // in the suffix so truncation never drops it
   const tx = texts(s, r);
   return {
     uid: `slo-${slug}`.slice(0, 40 - suffix.length) + suffix, // Grafana UIDs max out at 40 characters
-    title: `${s.service} SLO burn ${r.long}/${r.short}`,
+    title: `${s.service} ${s.sli} SLO burn ${r.long}/${r.short}`,
     condition: s.guard > 0 ? "D" : "C",
     prom,
     expression: terms.join(" && "),
     labels: ruleLabels(s, r),
     annotations: [
       ["summary", tx.summary],
-      ["description", `Error ratio over the last ${r.long} is {{ humanizePercentage $values.A.Value }}. ${tx.detail}`],
+      // $values.A is missing in the NoData state, and humanizePercentage would fail on it.
+      ["description", `Error ratio over the last ${r.long} is {{ with $values.A }}{{ humanizePercentage .Value }}{{ else }}unknown (no data){{ end }}. ${tx.detail}`],
       ["runbook_url", tx.runbook],
     ],
   };
@@ -272,7 +279,7 @@ export function grafanaRules(s) {
     "apiVersion: 1",
     "groups:",
     "  - orgId: 1",
-    `    name: ${sq(`slo-${s.service}`)}`,
+    `    name: ${sq(`slo-${sloName(s)}`)}`,
     "    folder: SLOs",
     "    interval: 1m",
     "    rules:",
@@ -339,7 +346,7 @@ function alignHcl(lines) {
 
 export function terraformRules(s) {
   const a = analyze(s);
-  const name = `slo_${s.service.replace(/[^A-Za-z0-9_]/g, "_")}`;
+  const name = `slo_${sloName(s).replace(/[^A-Za-z0-9_]/g, "_")}`;
   const map = (k, pairs) => [`    ${k} = {`, ...pairs.map(([pk, v]) => `      ${pk} = ${hq(v)}`), "    }"];
   const L = [
     ...header(s, "Grafana-managed alert rules (grafana/grafana provider)"),
@@ -356,7 +363,7 @@ export function terraformRules(s) {
     "}",
     "",
     `resource "grafana_rule_group" "${name}" {`,
-    `  name = ${hq(`slo-${s.service}`)}`,
+    `  name = ${hq(`slo-${sloName(s)}`)}`,
     "  folder_uid = var.folder_uid",
     "  interval_seconds = 60",
   ];

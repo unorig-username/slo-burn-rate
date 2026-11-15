@@ -80,6 +80,7 @@ test.describe("interactions", () => {
     await expect(rows.nth(0).locator("td").nth(3)).toHaveText("51.84s");
     await expect(rows.nth(1).locator("td").nth(5)).toHaveText("fires in 3h 36m");
     await expect(page.locator("#chartCaption")).toContainText("budget is gone in 3d");
+    await expect(page.locator("#chartCaption")).toContainText("Alerts: row 2 fires in 3h 36m; rows 3 and 4 fire in 7h 12m.");
     await expect(page.locator("#chart circle")).toHaveCount(2);
   });
 
@@ -104,6 +105,31 @@ test.describe("interactions", () => {
     await expect(page.locator("#out-prom")).toBeVisible();
   });
 
+  test("an out-of-range what-if rate keeps its own field on screen", async ({ page }) => {
+    await page.goto("/");
+    await field(page, "whatIf").fill("150");
+    await expect(page.locator("#errorList")).toContainText("What-if error rate must be between 0 and 100 percent.");
+    await expect(page.locator("#analysis")).toBeHidden();
+    await expect(field(page, "whatIf")).toBeVisible();
+    await page.reload();
+    await expect(field(page, "whatIf")).toBeVisible();
+    await field(page, "whatIf").fill("5");
+    await expect(page.locator("#errors")).toBeHidden();
+    await expect(page.locator("#analysis")).toBeVisible();
+  });
+
+  test("the skip link keeps the config in the URL", async ({ page }) => {
+    await page.goto("/#svc=payments&slo=99.5");
+    await expect(field(page, "service")).toHaveValue("payments");
+    await page.keyboard.press("Tab");
+    await expect(page.locator(".skip")).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("main")).toBeFocused();
+    expect(new URL(page.url()).hash).toBe("#svc=payments&slo=99.5");
+    await expect(field(page, "service")).toHaveValue("payments");
+    await expect(field(page, "slo")).toHaveValue("99.5");
+  });
+
   test("latency SLI swaps the selectors", async ({ page }) => {
     await page.goto("/");
     await expect(field(page, "good")).toBeHidden();
@@ -118,7 +144,11 @@ test.describe("interactions", () => {
     await page.getByRole("button", { name: "Add row" }).click();
     await expect(page.locator("#policy tr")).toHaveCount(5);
     await expect(page.getByLabel("Budget burned (%), row 5")).toBeFocused();
-    await expect(page.locator("#errorList")).toContainText("Policy row 5: another row already uses these windows.");
+    // The new row doubles the last row's windows, so it is valid straight away.
+    await expect(page.getByLabel("Long window, row 5")).toHaveValue("6d");
+    await expect(page.getByLabel("Short window, row 5")).toHaveValue("12h");
+    await expect(page.locator("#errors")).toBeHidden();
+    await expect(page.locator("#analysis tr")).toHaveCount(5);
     await page.getByLabel("Long window, row 5").fill("7d");
     await page.getByLabel("Short window, row 5").fill("12h");
     await expect(page.locator("#analysis tr")).toHaveCount(5);
@@ -168,11 +198,18 @@ test.describe("interactions", () => {
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(tf);
     await page.getByRole("button", { name: "Copy share link" }).click();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(page.url());
+    // Quick repeat clicks on one or several buttons all go back to their own label.
+    const prom = page.getByRole("button", { name: "Copy Prometheus rule file" });
+    await prom.click();
+    await btn.click();
+    await btn.click();
+    await expect(prom).toHaveText("Copy", { timeout: 5000 });
+    await expect(btn).toHaveText("Copy", { timeout: 5000 });
   });
 
   test("download buttons save the generated files", async ({ page }) => {
     await page.goto("/");
-    for (const [kind, name] of [["prom", "checkout-slo-rules.yml"], ["grafana", "checkout-slo-grafana.yml"], ["terraform", "checkout-slo.tf"]]) {
+    for (const [kind, name] of [["prom", "checkout-availability-slo-rules.yml"], ["grafana", "checkout-availability-slo-grafana.yml"], ["terraform", "checkout-availability-slo.tf"]]) {
       const [download] = await Promise.all([page.waitForEvent("download"), page.locator(`[data-download="${kind}"]`).click()]);
       expect(download.suggestedFilename()).toBe(name);
       const body = readFileSync(await download.path(), "utf8");

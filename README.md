@@ -43,6 +43,8 @@ The times ignore scrape and rule evaluation intervals and assume the window was 
 ## Generated config
 
 - **Prometheus.** Recording rules `slo:sli_error:ratio_rate<window>` with an `slo` label, one per distinct window, then one `ErrorBudgetBurn` alert per policy row with `severity`, `slo`, `long_window`, and `short_window` labels.
+
+The SLO's name is `<service>-<sli>`, for example `checkout-availability`. It goes into the `slo` label, the rule group names, the Grafana UIDs and titles, and the Terraform resource name, so an availability and a latency SLO for the same service can be loaded side by side.
 - **Grafana file provisioning.** Grafana-managed rules that query Prometheus directly, so they don't depend on the recording rules. Each rule has one instant query per window, a traffic query when the guard is on, and a math expression as the condition, such as `$A > 0.0144 && $B > 0.0144 && $C > 1`. Rules use `for: 1m`, so they fire about a minute after the Prometheus rules. Replace `PROMETHEUS_DATASOURCE_UID` before loading the file.
 - **Terraform.** The same rules as a `grafana_rule_group` for the `grafana/grafana` provider, with `var.prometheus_datasource_uid` and `var.folder_uid`.
 
@@ -50,19 +52,22 @@ Every `runbook_url` is a placeholder. Replace it.
 
 Group-by labels go into every `sum by (...)` and every `and on (...)`, so each cluster or namespace is judged against its own budget.
 
+The availability ratio is `(sum(rate(errors[w])) or 0 * sum(rate(total[w]))) / sum(rate(total[w]))`. Client libraries create the `code="5xx"` series on the first error, so a healthy service often has none. Without the `or`, the ratio would be empty, and Grafana would turn that into a NoData alert.
+
 Things to know before you ship the rules:
 
 - Rates over 1d and 3d of raw counters are expensive on a large Prometheus. The recording rules help the Prometheus path. The Grafana rules query raw series every minute.
 - The traffic guard averages over the long window. A series younger than that window reads as lower traffic than it has.
+- Grafana rules use `noDataState: NoData`. If the total series is missing entirely, usually a wrong selector, the rule raises a `DatasourceNoData` alert with the rule's labels.
 - Grafana provisioning expands environment variables in titles and labels. That is why service names are limited to letters, digits, `.`, `-`, and `_`. Queries, math expressions, and annotations are not expanded.
 - For a latency SLI, check the exact `le` value with a query first. Prometheus 3 writes whole-number bucket boundaries as `1.0`, not `1`.
 
 ## How it is checked
 
 - `npm run lint`: html-validate on every page.
-- `npm run test:unit`: Node's built-in test runner against `public/slo.js`. Budget and burn-rate math for 30 and 28 day windows, 99.9% and 99.99%, latency SLIs, group-by labels in every aggregation, the traffic guard on and off, URL hash round trips, input validation, YAML that parses, and `terraform fmt -check` on generated HCL.
+- `npm run test:unit`: Node's built-in test runner against `public/slo.js`. Budget and burn-rate math for 30 and 28 day windows, 99.9% and 99.99%, latency SLIs, group-by labels in every aggregation, the traffic guard on and off, the missing-5xx fallback, distinct names for two SLOs on one service, long selectors kept whole, URL hash round trips, input validation, YAML that parses, and `terraform fmt -check` on generated HCL.
 - `npm run test:e2e`: Playwright against `wrangler dev` on desktop and iPhone 15 (Chromium). Light and dark mode, no console or CSP errors, axe with no serious or critical WCAG 2.2 AA violations, no horizontal scroll at 390px, live updates, hash round trips, copy, and download.
-- `npm run check:rules`: `promtool` from the `prom/prometheus` image in Docker. `check rules` on five variants, then `test rules` on simulated traffic: no alerts while healthy, both pages and the 3d ticket three minutes into a full outage, all four alerts by minute ten, nothing when traffic is under the guard, and a latency SLI that counts slow requests as errors.
+- `npm run check:rules`: `promtool` from the `prom/prometheus` image in Docker. `check rules` on five variants, then `test rules` on simulated traffic. After three days of healthy traffic: no alerts, both pages three minutes into a full outage, and all four alerts by minute five. Nothing fires when traffic is under the guard. With an availability and a latency SLO for one service loaded together: the availability ratio is 0 while no 5xx series exists, the latency ratio counts slow requests as errors, and only the latency alert fires.
 
 ## Run it
 
