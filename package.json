@@ -1,0 +1,28 @@
+{
+  "name": "slo-burn-rate",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SLO error budget and multiwindow, multi-burn-rate alert calculator. Generates Prometheus, Grafana, and Terraform rules. Static, served by Cloudflare Workers Static Assets.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "lint": "html-validate public/*.html",
+    "test:unit": "node --test \"tests/unit/*.test.mjs\"",
+    "test:e2e": "playwright test",
+    "test": "npm run lint && npm run test:unit && npm run test:e2e",
+    "check:rules": "node scripts/check-rules.mjs"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.65.1",
+    "html-validate": "11.21.1",
+    "wrangler": "4.162.0",
+    "yaml": "2.9.1"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "workerd@1.20261113.1": true
+  }
+}

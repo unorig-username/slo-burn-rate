@@ -1,0 +1,14 @@
+{
+  // Static site served from Workers Static Assets. No Worker script, no build step.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "slo-burn-rate",
+  "account_id": "54e516d699c51af4df31a78ccad4d1f8",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./public",
+    "not_found_handling": "404-page"
+  },
+  "routes": [
+    { "pattern": "slo.coreyjones.dev", "custom_domain": true }
+  ]
+}
