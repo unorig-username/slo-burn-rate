@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
@@ -10,6 +10,7 @@ import {
   DEFAULTS, analyze, validate, toHash, fromHash, formatDuration, parseWindow, promDuration,
   errorRatio, prometheusRules, grafanaRules, terraformRules,
 } from "../../public/slo.js";
+import { DIR as EXAMPLES_DIR, render as renderExamples } from "../../scripts/export-examples.mjs";
 
 const state = (over = {}) => ({ ...structuredClone(DEFAULTS), ...over });
 const LATENCY = { sli: "latency" };
@@ -270,4 +271,13 @@ test("validate catches bad input", () => {
   assert.match(bad({ days: 2 })[0], /longer than the SLO window/);
   const dupe = { pct: 2, long: "1h", short: "5m", severity: "page" };
   assert.match(bad({ policy: [dupe, dupe] })[0], /already uses these windows/);
+});
+
+test("committed examples match the generators (run npm run examples to refresh)", () => {
+  const want = renderExamples();
+  assert.deepEqual(readdirSync(EXAMPLES_DIR).sort(), Object.keys(want).sort());
+  for (const [name, files] of Object.entries(want)) {
+    assert.deepEqual(readdirSync(join(EXAMPLES_DIR, name)).sort(), Object.keys(files).sort(), name);
+    for (const [file, text] of Object.entries(files)) assert.equal(readFileSync(join(EXAMPLES_DIR, name, file), "utf8"), text, `${name}/${file}`);
+  }
 });

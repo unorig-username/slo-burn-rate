@@ -1,5 +1,5 @@
 // Checks generated Prometheus rules with promtool, run from the official image in Docker.
-// 1. `promtool check rules` on every variant (syntax, PromQL, label names).
+// 1. `promtool check rules` on every variant and every committed example in examples/ (syntax, PromQL, label names).
 // 2. `promtool test rules` on simulated traffic: quiet when healthy, all four alerts during a full outage,
 //    a 0 error ratio (not no data) before the first 5xx, and an availability and a latency SLO for one
 //    service loaded side by side without overwriting each other.
@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULTS, prometheusRules } from "../public/slo.js";
+import { DIR as EXAMPLES, render } from "./export-examples.mjs";
 
 const IMAGE = "prom/prometheus:v3.16.0";
 const state = (over) => ({ ...structuredClone(DEFAULTS), ...over });
@@ -107,8 +108,9 @@ try {
   for (const [name, over] of Object.entries(VARIANTS)) writeFileSync(join(dir, `${name}.yml`), prometheusRules(state(over)));
   writeFileSync(join(dir, "outage.test.yml"), OUTAGE_TEST);
   writeFileSync(join(dir, "latency.test.yml"), LATENCY_TEST);
-  const promtool = (...args) => spawnSync("docker", ["run", "--rm", "--entrypoint", "promtool", "-v", `${dir}:/w:ro`, "-w", "/w", IMAGE, ...args], { stdio: "inherit" });
-  for (const args of [["check", "rules", ...Object.keys(VARIANTS).map((n) => `${n}.yml`)], ["test", "rules", "outage.test.yml", "latency.test.yml"]]) {
+  const examples = Object.entries(render()).flatMap(([name, files]) => Object.keys(files).filter((f) => f.endsWith("-slo-rules.yml")).map((f) => `/examples/${name}/${f}`));
+  const promtool = (...args) => spawnSync("docker", ["run", "--rm", "--entrypoint", "promtool", "-v", `${dir}:/w:ro`, "-v", `${EXAMPLES}:/examples:ro`, "-w", "/w", IMAGE, ...args], { stdio: "inherit" });
+  for (const args of [["check", "rules", ...Object.keys(VARIANTS).map((n) => `${n}.yml`), ...examples], ["test", "rules", "outage.test.yml", "latency.test.yml"]]) {
     const r = promtool(...args);
     if (r.error || r.status !== 0) failed = true;
   }

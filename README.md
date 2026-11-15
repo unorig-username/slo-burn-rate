@@ -50,6 +50,8 @@ The SLO's name is `<service>-<sli>`, for example `checkout-availability`. It goe
 
 Every `runbook_url` is a placeholder. Replace it.
 
+[`examples/`](examples) has all three files for five setups: the defaults, a latency SLI, group-by `job,route`, the traffic guard off, and 99.99% over 28 days. `npm run examples` rewrites them.
+
 Group-by labels go into every `sum by (...)` and every `and on (...)`, so each cluster or namespace is judged against its own budget.
 
 The availability ratio is `(sum(rate(errors[w])) or 0 * sum(rate(total[w]))) / sum(rate(total[w]))`. Client libraries create the `code="5xx"` series on the first error, so a healthy service often has none. Without the `or`, the ratio would be empty, and Grafana would turn that into a NoData alert.
@@ -65,9 +67,10 @@ Things to know before you ship the rules:
 ## How it is checked
 
 - `npm run lint`: html-validate on every page.
-- `npm run test:unit`: Node's built-in test runner against `public/slo.js`. Budget and burn-rate math for 30 and 28 day windows, 99.9% and 99.99%, latency SLIs, group-by labels in every aggregation, the traffic guard on and off, the missing-5xx fallback, distinct names for two SLOs on one service, long selectors kept whole, URL hash round trips, input validation, YAML that parses, and `terraform fmt -check` on generated HCL.
+- `npm run test:unit`: Node's built-in test runner against `public/slo.js`. Budget and burn-rate math for 30 and 28 day windows, 99.9% and 99.99%, latency SLIs, group-by labels in every aggregation, the traffic guard on and off, the missing-5xx fallback, distinct names for two SLOs on one service, long selectors kept whole, URL hash round trips, input validation, YAML that parses, `terraform fmt -check` on generated HCL, and committed examples that match the generators.
 - `npm run test:e2e`: Playwright against `wrangler dev` on desktop and iPhone 15 (Chromium). Light and dark mode, no console or CSP errors, axe with no serious or critical WCAG 2.2 AA violations, no horizontal scroll at 390px, live updates, hash round trips, copy, and download.
-- `npm run check:rules`: `promtool` from the `prom/prometheus` image in Docker. `check rules` on five variants, then `test rules` on simulated traffic. After three days of healthy traffic: no alerts, both pages three minutes into a full outage, and all four alerts by minute five. Nothing fires when traffic is under the guard. With an availability and a latency SLO for one service loaded together: the availability ratio is 0 while no 5xx series exists, the latency ratio counts slow requests as errors, and only the latency alert fires.
+- `npm run check:rules`: `promtool` from the `prom/prometheus` image in Docker. `check rules` on five variants and the five examples, then `test rules` on simulated traffic. After three days of healthy traffic: no alerts, both pages three minutes into a full outage, and all four alerts by minute five. Nothing fires when traffic is under the guard. With an availability and a latency SLO for one service loaded together: the availability ratio is 0 while no 5xx series exists, the latency ratio counts slow requests as errors, and only the latency alert fires.
+- The Grafana and Terraform examples are also test fixtures in [grafana-alert-lint](https://github.com/unorig-username/grafana-alert-lint), where every check stays quiet on them. The guard-off example trips only its traffic-guard check.
 
 ## Run it
 

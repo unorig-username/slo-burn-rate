@@ -1,0 +1,145 @@
+# Prometheus recording and alerting rules for the checkout SLO: 99.9% over 30d (availability).
+# Multiwindow, multi-burn-rate alerts (Google SRE Workbook, chapter 5).
+# Edit: https://slo.coreyjones.dev/#guard=0
+groups:
+  - name: 'slo-checkout-availability-recording'
+    rules:
+      - record: slo:sli_error:ratio_rate5m
+        expr: |-
+          (
+            sum(rate(http_requests_total{job="checkout",code=~"5.."}[5m]))
+            or
+            0 * sum(rate(http_requests_total{job="checkout"}[5m]))
+          )
+          /
+          sum(rate(http_requests_total{job="checkout"}[5m]))
+        labels:
+          slo: 'checkout-availability'
+      - record: slo:sli_error:ratio_rate30m
+        expr: |-
+          (
+            sum(rate(http_requests_total{job="checkout",code=~"5.."}[30m]))
+            or
+            0 * sum(rate(http_requests_total{job="checkout"}[30m]))
+          )
+          /
+          sum(rate(http_requests_total{job="checkout"}[30m]))
+        labels:
+          slo: 'checkout-availability'
+      - record: slo:sli_error:ratio_rate1h
+        expr: |-
+          (
+            sum(rate(http_requests_total{job="checkout",code=~"5.."}[1h]))
+            or
+            0 * sum(rate(http_requests_total{job="checkout"}[1h]))
+          )
+          /
+          sum(rate(http_requests_total{job="checkout"}[1h]))
+        labels:
+          slo: 'checkout-availability'
+      - record: slo:sli_error:ratio_rate2h
+        expr: |-
+          (
+            sum(rate(http_requests_total{job="checkout",code=~"5.."}[2h]))
+            or
+            0 * sum(rate(http_requests_total{job="checkout"}[2h]))
+          )
+          /
+          sum(rate(http_requests_total{job="checkout"}[2h]))
+        labels:
+          slo: 'checkout-availability'
+      - record: slo:sli_error:ratio_rate6h
+        expr: |-
+          (
+            sum(rate(http_requests_total{job="checkout",code=~"5.."}[6h]))
+            or
+            0 * sum(rate(http_requests_total{job="checkout"}[6h]))
+          )
+          /
+          sum(rate(http_requests_total{job="checkout"}[6h]))
+        labels:
+          slo: 'checkout-availability'
+      - record: slo:sli_error:ratio_rate1d
+        expr: |-
+          (
+            sum(rate(http_requests_total{job="checkout",code=~"5.."}[1d]))
+            or
+            0 * sum(rate(http_requests_total{job="checkout"}[1d]))
+          )
+          /
+          sum(rate(http_requests_total{job="checkout"}[1d]))
+        labels:
+          slo: 'checkout-availability'
+      - record: slo:sli_error:ratio_rate3d
+        expr: |-
+          (
+            sum(rate(http_requests_total{job="checkout",code=~"5.."}[3d]))
+            or
+            0 * sum(rate(http_requests_total{job="checkout"}[3d]))
+          )
+          /
+          sum(rate(http_requests_total{job="checkout"}[3d]))
+        labels:
+          slo: 'checkout-availability'
+  - name: 'slo-checkout-availability-alerts'
+    rules:
+      - alert: ErrorBudgetBurn
+        expr: |-
+          slo:sli_error:ratio_rate1h{slo="checkout-availability"} > (14.4 * 0.001)
+          and
+          slo:sli_error:ratio_rate5m{slo="checkout-availability"} > (14.4 * 0.001)
+        labels:
+          severity: 'page'
+          slo: 'checkout-availability'
+          long_window: '1h'
+          short_window: '5m'
+        annotations:
+          summary: 'checkout availability SLO is burning its error budget at 14.4x (2% of the 30d budget in 1h)'
+          description: 'Error ratio over the last 1h is {{ $value | humanizePercentage }}. Alert threshold is 1.44% errors (14.4x burn on a 99.9% SLO, 1h and 5m windows). At this rate the 30d budget lasts 2d 2h.'
+          # Placeholder: point runbook_url at your runbook.
+          runbook_url: 'https://example.com/REPLACE-ME/runbooks/slo-checkout-availability'
+      - alert: ErrorBudgetBurn
+        expr: |-
+          slo:sli_error:ratio_rate6h{slo="checkout-availability"} > (6 * 0.001)
+          and
+          slo:sli_error:ratio_rate30m{slo="checkout-availability"} > (6 * 0.001)
+        labels:
+          severity: 'page'
+          slo: 'checkout-availability'
+          long_window: '6h'
+          short_window: '30m'
+        annotations:
+          summary: 'checkout availability SLO is burning its error budget at 6x (5% of the 30d budget in 6h)'
+          description: 'Error ratio over the last 6h is {{ $value | humanizePercentage }}. Alert threshold is 0.6% errors (6x burn on a 99.9% SLO, 6h and 30m windows). At this rate the 30d budget lasts 5d.'
+          # Placeholder: point runbook_url at your runbook.
+          runbook_url: 'https://example.com/REPLACE-ME/runbooks/slo-checkout-availability'
+      - alert: ErrorBudgetBurn
+        expr: |-
+          slo:sli_error:ratio_rate1d{slo="checkout-availability"} > (3 * 0.001)
+          and
+          slo:sli_error:ratio_rate2h{slo="checkout-availability"} > (3 * 0.001)
+        labels:
+          severity: 'ticket'
+          slo: 'checkout-availability'
+          long_window: '1d'
+          short_window: '2h'
+        annotations:
+          summary: 'checkout availability SLO is burning its error budget at 3x (10% of the 30d budget in 1d)'
+          description: 'Error ratio over the last 1d is {{ $value | humanizePercentage }}. Alert threshold is 0.3% errors (3x burn on a 99.9% SLO, 1d and 2h windows). At this rate the 30d budget lasts 10d.'
+          # Placeholder: point runbook_url at your runbook.
+          runbook_url: 'https://example.com/REPLACE-ME/runbooks/slo-checkout-availability'
+      - alert: ErrorBudgetBurn
+        expr: |-
+          slo:sli_error:ratio_rate3d{slo="checkout-availability"} > (1 * 0.001)
+          and
+          slo:sli_error:ratio_rate6h{slo="checkout-availability"} > (1 * 0.001)
+        labels:
+          severity: 'ticket'
+          slo: 'checkout-availability'
+          long_window: '3d'
+          short_window: '6h'
+        annotations:
+          summary: 'checkout availability SLO is burning its error budget at 1x (10% of the 30d budget in 3d)'
+          description: 'Error ratio over the last 3d is {{ $value | humanizePercentage }}. Alert threshold is 0.1% errors (1x burn on a 99.9% SLO, 3d and 6h windows). At this rate the 30d budget lasts 30d.'
+          # Placeholder: point runbook_url at your runbook.
+          runbook_url: 'https://example.com/REPLACE-ME/runbooks/slo-checkout-availability'

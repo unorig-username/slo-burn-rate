@@ -1,0 +1,139 @@
+# Prometheus recording and alerting rules for the checkout SLO: 99.9% over 30d (latency).
+# Multiwindow, multi-burn-rate alerts (Google SRE Workbook, chapter 5).
+# Edit: https://slo.coreyjones.dev/#sli=latency
+groups:
+  - name: 'slo-checkout-latency-recording'
+    rules:
+      - record: slo:sli_error:ratio_rate5m
+        expr: |-
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{job="checkout",le="0.3"}[5m]))
+            /
+            sum(rate(http_request_duration_seconds_count{job="checkout"}[5m]))
+          )
+        labels:
+          slo: 'checkout-latency'
+      - record: slo:sli_error:ratio_rate30m
+        expr: |-
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{job="checkout",le="0.3"}[30m]))
+            /
+            sum(rate(http_request_duration_seconds_count{job="checkout"}[30m]))
+          )
+        labels:
+          slo: 'checkout-latency'
+      - record: slo:sli_error:ratio_rate1h
+        expr: |-
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{job="checkout",le="0.3"}[1h]))
+            /
+            sum(rate(http_request_duration_seconds_count{job="checkout"}[1h]))
+          )
+        labels:
+          slo: 'checkout-latency'
+      - record: slo:sli_error:ratio_rate2h
+        expr: |-
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{job="checkout",le="0.3"}[2h]))
+            /
+            sum(rate(http_request_duration_seconds_count{job="checkout"}[2h]))
+          )
+        labels:
+          slo: 'checkout-latency'
+      - record: slo:sli_error:ratio_rate6h
+        expr: |-
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{job="checkout",le="0.3"}[6h]))
+            /
+            sum(rate(http_request_duration_seconds_count{job="checkout"}[6h]))
+          )
+        labels:
+          slo: 'checkout-latency'
+      - record: slo:sli_error:ratio_rate1d
+        expr: |-
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{job="checkout",le="0.3"}[1d]))
+            /
+            sum(rate(http_request_duration_seconds_count{job="checkout"}[1d]))
+          )
+        labels:
+          slo: 'checkout-latency'
+      - record: slo:sli_error:ratio_rate3d
+        expr: |-
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{job="checkout",le="0.3"}[3d]))
+            /
+            sum(rate(http_request_duration_seconds_count{job="checkout"}[3d]))
+          )
+        labels:
+          slo: 'checkout-latency'
+  - name: 'slo-checkout-latency-alerts'
+    rules:
+      - alert: ErrorBudgetBurn
+        expr: |-
+          slo:sli_error:ratio_rate1h{slo="checkout-latency"} > (14.4 * 0.001)
+          and
+          slo:sli_error:ratio_rate5m{slo="checkout-latency"} > (14.4 * 0.001)
+          and on ()
+          sum(rate(http_request_duration_seconds_count{job="checkout"}[1h])) > 1
+        labels:
+          severity: 'page'
+          slo: 'checkout-latency'
+          long_window: '1h'
+          short_window: '5m'
+        annotations:
+          summary: 'checkout latency SLO is burning its error budget at 14.4x (2% of the 30d budget in 1h)'
+          description: 'Error ratio over the last 1h is {{ $value | humanizePercentage }}. Alert threshold is 1.44% errors (14.4x burn on a 99.9% SLO, 1h and 5m windows). At this rate the 30d budget lasts 2d 2h.'
+          # Placeholder: point runbook_url at your runbook.
+          runbook_url: 'https://example.com/REPLACE-ME/runbooks/slo-checkout-latency'
+      - alert: ErrorBudgetBurn
+        expr: |-
+          slo:sli_error:ratio_rate6h{slo="checkout-latency"} > (6 * 0.001)
+          and
+          slo:sli_error:ratio_rate30m{slo="checkout-latency"} > (6 * 0.001)
+          and on ()
+          sum(rate(http_request_duration_seconds_count{job="checkout"}[6h])) > 1
+        labels:
+          severity: 'page'
+          slo: 'checkout-latency'
+          long_window: '6h'
+          short_window: '30m'
+        annotations:
+          summary: 'checkout latency SLO is burning its error budget at 6x (5% of the 30d budget in 6h)'
+          description: 'Error ratio over the last 6h is {{ $value | humanizePercentage }}. Alert threshold is 0.6% errors (6x burn on a 99.9% SLO, 6h and 30m windows). At this rate the 30d budget lasts 5d.'
+          # Placeholder: point runbook_url at your runbook.
+          runbook_url: 'https://example.com/REPLACE-ME/runbooks/slo-checkout-latency'
+      - alert: ErrorBudgetBurn
+        expr: |-
+          slo:sli_error:ratio_rate1d{slo="checkout-latency"} > (3 * 0.001)
+          and
+          slo:sli_error:ratio_rate2h{slo="checkout-latency"} > (3 * 0.001)
+          and on ()
+          sum(rate(http_request_duration_seconds_count{job="checkout"}[1d])) > 1
+        labels:
+          severity: 'ticket'
+          slo: 'checkout-latency'
+          long_window: '1d'
+          short_window: '2h'
+        annotations:
+          summary: 'checkout latency SLO is burning its error budget at 3x (10% of the 30d budget in 1d)'
+          description: 'Error ratio over the last 1d is {{ $value | humanizePercentage }}. Alert threshold is 0.3% errors (3x burn on a 99.9% SLO, 1d and 2h windows). At this rate the 30d budget lasts 10d.'
+          # Placeholder: point runbook_url at your runbook.
+          runbook_url: 'https://example.com/REPLACE-ME/runbooks/slo-checkout-latency'
+      - alert: ErrorBudgetBurn
+        expr: |-
+          slo:sli_error:ratio_rate3d{slo="checkout-latency"} > (1 * 0.001)
+          and
+          slo:sli_error:ratio_rate6h{slo="checkout-latency"} > (1 * 0.001)
+          and on ()
+          sum(rate(http_request_duration_seconds_count{job="checkout"}[3d])) > 1
+        labels:
+          severity: 'ticket'
+          slo: 'checkout-latency'
+          long_window: '3d'
+          short_window: '6h'
+        annotations:
+          summary: 'checkout latency SLO is burning its error budget at 1x (10% of the 30d budget in 3d)'
+          description: 'Error ratio over the last 3d is {{ $value | humanizePercentage }}. Alert threshold is 0.1% errors (1x burn on a 99.9% SLO, 3d and 6h windows). At this rate the 30d budget lasts 30d.'
+          # Placeholder: point runbook_url at your runbook.
+          runbook_url: 'https://example.com/REPLACE-ME/runbooks/slo-checkout-latency'
