@@ -4,7 +4,7 @@
 //    a 0 error ratio (not no data) before the first 5xx, and an availability and a latency SLO for one
 //    service loaded side by side without overwriting each other.
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULTS, prometheusRules } from "../public/slo.js";
 import { DIR as EXAMPLES, render } from "./export-examples.mjs";
@@ -103,6 +103,7 @@ tests:
 const base = join(import.meta.dirname, "..", ".tmp");
 mkdirSync(base, { recursive: true });
 const dir = mkdtempSync(join(base, "promtool-"));
+chmodSync(dir, 0o755); // mkdtemp makes it 0700; the image runs as nobody, and Linux Docker enforces that
 let failed = false;
 try {
   for (const [name, over] of Object.entries(VARIANTS)) writeFileSync(join(dir, `${name}.yml`), prometheusRules(state(over)));
